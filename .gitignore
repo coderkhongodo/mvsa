@@ -1,0 +1,24 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*.pyo
+.ipynb_checkpoints/
+
+# Environments / build
+.venv/
+venv/
+.env
+*.egg-info/
+
+# OS
+.DS_Store
+
+# Model weights / checkpoints
+*.pth
+*.pt
+*.ckpt
+*.bin
+*.safetensors
+
+# Zip archives
+MVSA-single.zip
