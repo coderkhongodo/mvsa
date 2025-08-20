@@ -1,5 +1,10 @@
 import sys
-sys.path.append("../preprocessing/")
+import os
+# Ensure the preprocessing package is resolvable regardless of CWD
+_CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+_PREPROC_DIR = os.path.normpath(os.path.join(_CURRENT_DIR, "../preprocessing"))
+if _PREPROC_DIR not in sys.path:
+    sys.path.append(_PREPROC_DIR)
 import torch.nn as nn
 import torch
 from text_processing import Tweet_Preprocessing

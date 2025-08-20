@@ -1,5 +1,9 @@
 import sys
-sys.path.append("../preprocessing/")
+import os
+_CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+_PREPROC_DIR = os.path.normpath(os.path.join(_CURRENT_DIR, "../preprocessing"))
+if _PREPROC_DIR not in sys.path:
+    sys.path.append(_PREPROC_DIR)
 import numpy as np
 from torchvision import transforms, models
 import torch.nn as nn

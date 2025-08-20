@@ -95,13 +95,13 @@ TASKS = {
     6:"msd",
 }
 
-DATA_PATH = "../data/"
+DATA_PATH = "/root/mvsa_multimodal/data/"
 
 PATH = {
     0: DATA_PATH + "data_key_imgtxt_random.csv",
     1: DATA_PATH + "data_key_imgtxt_random.csv",
     2: DATA_PATH + "data_key_imgtxt_random.csv",
-    3: DATA_PATH + "data_key_mvsa_20.csv",  # TEMP: use 20% subset
+    3: "/root/mvsa_multimodal/data/data_key_mvsa_20.csv",  # 20% MVSA subset (absolute path)
     4: DATA_PATH + "data_key_mhp.csv",
     5: DATA_PATH + "data_key_mic.csv",
     6: DATA_PATH + "data_key_msd.csv",
@@ -111,7 +111,7 @@ IMG_FMT ={
     0: DATA_PATH + 'text-image/T{}.jpg',
     1: DATA_PATH + 'text-image/T{}.jpg',
     2: DATA_PATH + 'text-image/T{}.jpg',
-    3: DATA_PATH + 'MVSA-Single-20/data/{}.jpg',  # TEMP: 20% images; PNG fallback handled in dataset
+    3: '/root/mvsa_multimodal/data/MVSA-Single-20/data/{}.jpg',  # 20% images; PNG fallback handled in dataset
     4: DATA_PATH +"MHP/Data/Images/{}.jpg",
     5: DATA_PATH + "MIC/spc_imgs_twitter/{}_1.jpg",
     6: DATA_PATH +'MSD/dataset_image/{}.jpg',
@@ -129,7 +129,7 @@ CLASSES = {2:['image adds and text is represented',
 EMPTY_IMG = DATA_PATH + "MIC/empty_image.png"
 TDATA5 = "../data/text_data_mic.csv"
 metric_names = ["f1_weighted","f1_macro","precision_weighted","precision_macro","recall_weighted","recall_macro","loss"]
-RES_PATH = "../results/"
+RES_PATH = "/root/mvsa_multimodal/results/"
 results_dir_txt = RES_PATH + "txt_only/"
 results_dir_img = RES_PATH + "img_only/"
 results_dir_mm_early = RES_PATH + "mm_early/"

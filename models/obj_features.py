@@ -1,5 +1,9 @@
 import sys
-sys.path.append("../")
+import os
+_CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+_ROOT_DIR = os.path.normpath(os.path.join(_CURRENT_DIR, ".."))
+if _ROOT_DIR not in sys.path:
+    sys.path.append(_ROOT_DIR)
 from utils import prepare_data
 from config import Config, PATH, TASKS, IMG_FMT, MODEL_DIR_DICT, EMPTY_IMG, DATA_PATH
 import torch
@@ -17,7 +21,9 @@ from transformers import (
     AutoTokenizer,
     ViltProcessor
 )
-sys.path.append("../preprocessing/")
+_PREPROC_DIR = os.path.normpath(os.path.join(_CURRENT_DIR, "../preprocessing"))
+if _PREPROC_DIR not in sys.path:
+    sys.path.append(_PREPROC_DIR)
 from text_processing import Tweet_Preprocessing
 tweet_preprocessing = Tweet_Preprocessing() 
 # ------ LOGGING-----------------------------------------------------

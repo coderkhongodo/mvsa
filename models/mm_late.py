@@ -424,6 +424,10 @@ class MMLate_Model(object):
 
         #optimizer= optim.Adam(self.model.parameters(), lr= lr, weight_decay = weight_decay)
         res_val, res_te = [], []
+        best_val_loss = float('inf')
+        patience = 3
+        patience_counter = 0
+        
         for epoch in range(epochs):
             self.model.train()
             print("Epoch:",epoch+1)
@@ -508,6 +512,24 @@ class MMLate_Model(object):
             res_val_d = self.eval(val_dataloader,loss_fn,tim_loss_fn=tim_loss_fn,iadds_loss_fn=iadds_loss_fn)
             res_val_d["epoch"] = epoch
             res_val.append(res_val_d)
+            
+            # Early stopping logic
+            current_val_loss = res_val_d["loss"]
+            if current_val_loss < best_val_loss:
+                best_val_loss = current_val_loss
+                patience_counter = 0
+                # Save best model
+                if model_path != None:
+                    torch.save(self.model.state_dict(), model_path.replace('.pth', '_best.pth'))
+                    logger.info("Best model saved with val_loss: {:.4f}".format(best_val_loss))
+            else:
+                patience_counter += 1
+                logger.info("Patience counter: {}/{}".format(patience_counter, patience))
+            
+            if patience_counter >= patience:
+                logger.info("Early stopping triggered after {} epochs".format(epoch + 1))
+                break
+            
             if val_filename != None and (epoch%2 == 0 or epoch==epochs-1):
                 logger.info("Compute metrics (val)")
                 metrics_val = agg_metrics_val(res_val, metric_names, self.num_labels)
@@ -521,7 +543,6 @@ class MMLate_Model(object):
                 res_te_d["epoch"] = epoch
                 res_te.append(res_te_d)
                 if te_filename != None and (epoch%2 == 0 or epoch==epochs-1):
-                    logger.info("Compute metrics (test)")
                     metrics_te = agg_metrics_val(res_te, metric_names, self.num_labels)
                     pd.DataFrame(metrics_te).to_csv(te_filename,index=False)
                     logger.info("{} saved!".format(te_filename))

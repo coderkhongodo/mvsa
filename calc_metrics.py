@@ -2,7 +2,7 @@ import pandas as pd
 from sklearn.metrics import f1_score, precision_score, recall_score, accuracy_score, classification_report, confusion_matrix
 
 # Load data
-df = pd.read_csv('/root/mvsa_multimodal/MVSA_MULTIMODAL/results/img_only/MVSA_img_20__vit_task3_seed30_preds.csv')
+df = pd.read_csv('/root/mvsa_multimodal/results/mm_late/bernice-vit-concat_task3_seed30_itc0.1itm0.1_preds.csv')
 y_true = df['label'].values
 y_pred = df['prediction'].values
 
