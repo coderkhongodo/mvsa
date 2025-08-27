@@ -346,6 +346,11 @@ class MMLate_Model(object):
     def load_data(self, data, img_file_fmt, testing=False, nsamples=-1, saved_features=False, task_name=None,
                   eval_txt_test=False, compute_class_weights=True, random_labels=False):
         
+        # Preserve original image paths if present before prepare_data drops extra columns
+        id_to_image = None
+        if ('image' in data.columns) and ('tweet_id' in data.columns):
+            id_to_image = {tid: img for tid, img in zip(data.tweet_id.values, data.image.values)}
+
         train, y_vector_tr, val, y_vector_val, test, y_vector_te, class_weights, image_adds = prepare_data(
             data, self.num_labels, testing=testing, nsamples=nsamples, compute_class_weights=compute_class_weights,
             random_labels=random_labels, load_image_adds=self.use_iadds_loss, multilabel=self.multilabel)
@@ -359,16 +364,26 @@ class MMLate_Model(object):
             train_ids = train.tweet_id.values
             val_ids = val.tweet_id.values
             test_ids = test.tweet_id.values
+            # For datasets with absolute image paths (e.g., viclick), pass img_paths directly
+            use_norm = False if task_name == "viclick" else True
+            if img_file_fmt is None and id_to_image is not None:
+                train_img_paths = [id_to_image.get(tid) for tid in train_ids]
+                val_img_paths = [id_to_image.get(tid) for tid in val_ids]
+                test_img_paths = [id_to_image.get(tid) for tid in test_ids]
+            else:
+                train_img_paths = None
+                val_img_paths = None
+                test_img_paths = None
 
             tr_dataset = MM_Dataset(
                 train_ids,train.text.values,y_vector_tr,self.processor, self.max_length,
-              img_file_fmt=img_file_fmt, saved_features=saved_features, task_name=task_name, image_adds=image_adds["train"])
+              img_file_fmt=img_file_fmt, saved_features=saved_features, task_name=task_name, image_adds=image_adds["train"], img_paths=train_img_paths, normalization=use_norm)
             val_dataset = MM_Dataset(
                 val_ids,val.text.values,y_vector_val,self.processor, self.max_length, 
-             img_file_fmt=img_file_fmt, saved_features=saved_features, task_name=task_name, image_adds=image_adds["val"])
+             img_file_fmt=img_file_fmt, saved_features=saved_features, task_name=task_name, image_adds=image_adds["val"], img_paths=val_img_paths, normalization=use_norm)
             te_dataset = MM_Dataset(
                 test_ids,test.text.values,y_vector_te,self.processor, self.max_length, 
-             img_file_fmt=img_file_fmt, saved_features=saved_features, task_name=task_name, image_adds=image_adds["test"])
+             img_file_fmt=img_file_fmt, saved_features=saved_features, task_name=task_name, image_adds=image_adds["test"], img_paths=test_img_paths, normalization=use_norm)
             if eval_txt_test:
                 txt_test, y_txt_te, image_adds = prepare_text_data(num_labels=self.num_labels, testing=testing,
                                                        load_image_adds=self.use_iadds_loss)
@@ -384,6 +399,12 @@ class MMLate_Model(object):
         train_loader = DataLoader(tr_dataset, batch_size=self.batch_size, shuffle=True) 
         val_loader = DataLoader(val_dataset, batch_size=self.batch_size,shuffle=False)        
         test_loader = DataLoader(te_dataset, batch_size=self.batch_size,shuffle=False)
+        # expose datasets for error summaries
+        self._datasets = {
+            'train': tr_dataset,
+            'val': val_dataset,
+            'test': te_dataset
+        }
         return train_loader, val_loader ,test_loader, class_weights, txt_te_loader
     
     def prepare_itm_inputs(self, ids, mask):
@@ -431,6 +452,12 @@ class MMLate_Model(object):
         for epoch in range(epochs):
             self.model.train()
             print("Epoch:",epoch+1)
+            sum_loss = 0.0
+            sum_ce = 0.0
+            sum_itc = 0.0
+            sum_itm = 0.0
+            sum_iadds = 0.0
+            step = 0
             for batch in tqdm(dataloader):
                 if self.cnn:
                     ids = batch['ids'].to(device)
@@ -472,27 +499,48 @@ class MMLate_Model(object):
                             )
                   
 
-                label = label.type_as(output)
-                # compute loss
-                if self.use_clip_loss and self.use_tim_loss:
-                    loss = (1-(self.beta_itc+self.beta_itm)) * loss_fn(output,label) + self.beta_itc * clip_loss(logits_per_text) + self.beta_itm * tim_loss_fn(output_tim,lbl_tim)
-                elif self.use_clip_loss:
-                    loss = (1-self.beta_itc) * loss_fn(output,label) + self.beta_itc * clip_loss(logits_per_text)
-                elif self.use_tim_loss:
-                    loss = (1-self.beta_itm) * loss_fn(output,label) + self.beta_itm * tim_loss_fn(output_tim,lbl_tim)
-                elif self.use_iadds_loss:
+                # Build class indices for CE when labels are one-hot
+                if not self.multilabel and label.dim() == 2 and label.size(1) == self.num_labels:
+                    label_idx = torch.argmax(label, dim=1)
+                else:
+                    label_idx = label
+                # compute loss components
+                loss_ce = loss_fn(output, label_idx)
+                loss_itc = clip_loss(logits_per_text) if self.use_clip_loss else None
+                loss_itm = tim_loss_fn(output_tim, lbl_tim) if self.use_tim_loss else None
+                loss_iadds_comp = None
+                if self.use_iadds_loss:
                     iadds_label = batch["image_adds"].to(device)
-                    #iadds_label = iadds_label.type_as(output_iadds)
-                    print("img_adds", iadds_label)
-                    loss = (1-self.beta_iadds) * loss_fn(output,label) + self.beta_iadds * iadds_loss_fn(output_iadds,iadds_label)
+                    loss_iadds_comp = iadds_loss_fn(output_iadds, iadds_label)
+                # combine losses
+                if self.use_clip_loss and self.use_tim_loss:
+                    loss = (1-(self.beta_itc+self.beta_itm)) * loss_ce + self.beta_itc * loss_itc + self.beta_itm * loss_itm
+                elif self.use_clip_loss:
+                    loss = (1-self.beta_itc) * loss_ce + self.beta_itc * loss_itc
+                elif self.use_tim_loss:
+                    loss = (1-self.beta_itm) * loss_ce + self.beta_itm * loss_itm
+                elif self.use_iadds_loss:
+                    loss = (1-self.beta_iadds) * loss_ce + self.beta_iadds * loss_iadds_comp
                 elif self.use_loss_correction:
                     loss = loss_correction(T,loss_fn, output, label)
                 else:
-                    loss = loss_fn(output,label)
+                    loss = loss_ce
                 # backward loss
                 loss.backward()
                 optimizer.step()
                 optimizer.zero_grad()
+                # bookkeeping
+                step += 1
+                sum_loss += float(loss.detach().cpu().item())
+                sum_ce += float(loss_ce.detach().cpu().item()) if loss_ce is not None else 0.0
+                if loss_itc is not None:
+                    sum_itc += float(loss_itc.detach().cpu().item())
+                if loss_itm is not None:
+                    sum_itm += float(loss_itm.detach().cpu().item())
+                if loss_iadds_comp is not None:
+                    sum_iadds += float(loss_iadds_comp.detach().cpu().item())
+                if step % 10 == 0:
+                    print(f"step {step}: loss={sum_loss/step:.4f} | ce={sum_ce/step:.4f} itc={(sum_itc/step):.4f} itm={(sum_itm/step):.4f} iadds={(sum_iadds/step):.4f}")
                 # predict train
                 if not self.multilabel:
                     pred = torch.argmax(self.softmax(output),dim=1)  
@@ -512,6 +560,13 @@ class MMLate_Model(object):
             res_val_d = self.eval(val_dataloader,loss_fn,tim_loss_fn=tim_loss_fn,iadds_loss_fn=iadds_loss_fn)
             res_val_d["epoch"] = epoch
             res_val.append(res_val_d)
+            # epoch loss summary
+            avg_loss = sum_loss / max(1, step)
+            avg_ce = sum_ce / max(1, step)
+            avg_itc = sum_itc / max(1, step)
+            avg_itm = sum_itm / max(1, step)
+            avg_iadds = sum_iadds / max(1, step)
+            logger.info(f"Epoch {epoch+1} train avg losses: total={avg_loss:.4f} ce={avg_ce:.4f} itc={avg_itc:.4f} itm={avg_itm:.4f} iadds={avg_iadds:.4f}")
             
             # Early stopping logic
             current_val_loss = res_val_d["loss"]
@@ -550,6 +605,15 @@ class MMLate_Model(object):
         if model_path != None:
             torch.save(self.model.state_dict(), model_path)
             logger.info("{} saved".format(model_path))
+        # summarize image loading errors if any
+        try:
+            tr_err = getattr(self._datasets['train'], 'image_error_count', 0)
+            va_err = getattr(self._datasets['val'], 'image_error_count', 0)
+            te_err = getattr(self._datasets['test'], 'image_error_count', 0)
+            total_err = int(tr_err) + int(va_err) + int(te_err)
+            logger.info(f"Image load errors - train: {tr_err}, val: {va_err}, test: {te_err}, total: {total_err}")
+        except Exception:
+            pass
         #return res_val, res_te
     
     def eval(self, dataloader, loss_fn, tim_loss_fn = None,iadds_loss_fn=None):
@@ -598,20 +662,24 @@ class MMLate_Model(object):
                  
                         
             # Compute loss
-            label = label.type_as(output)
+            # Build class indices for CE when labels are one-hot
+            if not self.multilabel and label.dim() == 2 and label.size(1) == self.num_labels:
+                label_idx = torch.argmax(label, dim=1)
+            else:
+                label_idx = label
             if self.use_clip_loss and self.use_tim_loss:
-                loss = (1-(self.beta_itc+self.beta_itm)) * loss_fn(output,label) + self.beta_itc * clip_loss(logits_per_text) + self.beta_itm * tim_loss_fn(output_tim,lbl_tim)
+                loss = (1-(self.beta_itc+self.beta_itm)) * loss_fn(output,label_idx) + self.beta_itc * clip_loss(logits_per_text) + self.beta_itm * tim_loss_fn(output_tim,lbl_tim)
             elif self.use_clip_loss:
-                loss = (1-self.beta_itc) * loss_fn(output,label) + self.beta_itc * clip_loss(logits_per_text)
+                loss = (1-self.beta_itc) * loss_fn(output,label_idx) + self.beta_itc * clip_loss(logits_per_text)
             elif self.use_tim_loss:
-                loss = (1-self.beta_itm) * loss_fn(output,label) + self.beta_itm * tim_loss_fn(output_tim,lbl_tim)
+                loss = (1-self.beta_itm) * loss_fn(output,label_idx) + self.beta_itm * tim_loss_fn(output_tim,lbl_tim)
             elif self.use_iadds_loss:
                 iadds_label = batch["image_adds"].to(device)
-                loss = (1-self.beta_iadds) * loss_fn(output,label) + self.beta_iadds * iadds_loss_fn(output_iadds,iadds_label)
+                loss = (1-self.beta_iadds) * loss_fn(output,label_idx) + self.beta_iadds * iadds_loss_fn(output_iadds,iadds_label)
             elif self.use_loss_correction:
                 loss = loss_correction(T,loss_fn, output, label)
             else:
-                loss = loss_fn(output,label)
+                loss = loss_fn(output,label_idx)
             eval_loss.append(loss.item())
             # Get the predictions
             if not self.multilabel:

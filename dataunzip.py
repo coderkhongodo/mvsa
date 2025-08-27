@@ -24,6 +24,8 @@ TMP_DIR = os.path.join(DATA_DIR, "_extract_tmp")
 
 # ID tải cho MVSA (nếu cần)
 FILE_ID_MVSA = "1zdoXpFXLzqsP_E-WO6JgNJxviInYMdDe"
+# ID tải cho ViClickbait-2025 dataset.zip
+FILE_ID_VICLICK = "1MgDv5EWyQF1e6KVAnsb6LqFXvzpUC10R"
 
 def _clean_tmp(path: str):
     if os.path.exists(path):
@@ -56,9 +58,12 @@ def _move_all(src_root: str, dest_dir: str):
         shutil.move(src_path, dst_path)
 
 def _extract_viclickbait():
-    # 1) Kiểm tra zip
+    # 1) Kiểm tra zip; nếu không có, thử tải bằng gdown
     if not os.path.exists(DATASET_ZIP):
-        raise RuntimeError("Không tìm thấy dataset.zip ở thư mục gốc dự án. Hãy đặt file vào cùng thư mục với script.")
+        if gdown is None:
+            raise RuntimeError("Không tìm thấy dataset.zip và gdown chưa được cài. Cài đặt: pip install gdown")
+        print("⬇️ Downloading dataset.zip (ViClickbait-2025)...")
+        gdown.download(id=FILE_ID_VICLICK, output=DATASET_ZIP, quiet=False)
     # 2) Giải nén
     _clean_tmp(TMP_DIR)
     os.makedirs(TMP_DIR, exist_ok=True)

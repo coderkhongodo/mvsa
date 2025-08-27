@@ -11,7 +11,7 @@ from text_processing import Tweet_Preprocessing
 from PIL import Image
 from torch.utils.data import Dataset
 from utils import to_tensor_and_normalize, get_image_transforms
-from config import DATA_PATH
+from config import DATA_PATH, EMPTY_IMG
 
 class TxtOnly_Dataset(Dataset):
     def __init__(self, model_name, data_ids, text, labels, tokenizer, max_length, task_name, normalization = True):
@@ -22,6 +22,8 @@ class TxtOnly_Dataset(Dataset):
             self.data_ids_num = [float(x.split("_")[0]) for x in self.data_ids]
         elif self.task_name in {"polid","poladv"}:
             self.data_ids_num = [float(x[2:]) for x in self.data_ids]
+        elif self.task_name == "viclick":
+            self.data_ids_num = list(range(len(self.data_ids)))
         else:
             self.data_ids_num = self.data_ids
         #self.data_ids_num = [float(x.split("_")[0]) for x in self.data_ids] if self.task_name == "poi" else self.data_ids
@@ -38,7 +40,7 @@ class TxtOnly_Dataset(Dataset):
     
     def __getitem__(self, index):
         
-        text = self.tweet_preprocessing.normalizeTweet(self.text[index]) if self.normalization else self.text
+        text = self.tweet_preprocessing.normalizeTweet(self.text[index]) if self.normalization else self.text[index]
 
         inputs = self.tokenizer.encode_plus(
             text ,
@@ -74,6 +76,8 @@ class ImgOnly_Dataset(Dataset):
             self.data_ids_num = [float(x.split("_")[0]) for x in self.data_ids]
         elif self.task_name in {"polid","poladv"}:
             self.data_ids_num = [float(x[2:]) for x in self.data_ids]
+        elif self.task_name == "viclick":
+            self.data_ids_num = list(range(len(self.data_ids)))
         else:
             self.data_ids_num = self.data_ids
         #self.data_ids_num = [float(x.split("_")[0]) for x in self.data_ids] if self.task_name == "poi" else self.data_ids
@@ -138,6 +142,8 @@ class MM_Dataset(Dataset):
             self.data_ids_num = [float(x[2:]) for x in self.data_ids]
         elif self.task_name == "fig":
             self.data_ids_num = [float(x.split(".")[0]) for x in self.data_ids]
+        elif self.task_name == "viclick":
+            self.data_ids_num = list(range(len(self.data_ids)))
         else:
             self.data_ids_num = self.data_ids
         #self.data_ids_num = [float(x.split("_")[0]) for x in self.data_ids] if self.task_name == "poi" else self.data_ids
@@ -150,9 +156,21 @@ class MM_Dataset(Dataset):
         self.processor=processor
         self.img_file_fmt = img_file_fmt
         self.img_paths = img_paths
-        self.empty_image = empty_image
+        # default empty image: use provided or global placeholder IF it exists
+        try:
+            import os
+            candidate = empty_image if empty_image is not None else EMPTY_IMG
+            if candidate is not None and os.path.exists(candidate):
+                self.empty_image = candidate
+            else:
+                self.empty_image = None
+        except Exception:
+            self.empty_image = None
         self.saved_features = saved_features
         self.image_adds = image_adds
+        # track image loading errors
+        self.image_error_count = 0
+        self.image_error_indices = []
         
     def __len__(self):
         return len(self.labels)
@@ -174,16 +192,32 @@ class MM_Dataset(Dataset):
                     else:
                         image = Image.open(self.img_file_fmt.format(self.data_ids[index])).convert("RGB")
                 except:
-                    if self.img_paths is None:
-                        image = Image.open(self.img_file_fmt.replace("jpg","png").format(self.data_ids[index])).convert("RGB")
-                    else:
-                        # fallback to png by replacing extension on path
-                        p = str(self.img_paths[index])
-                        alt = p.rsplit('.',1)[0] + ".png"
-                        image = Image.open(alt).convert("RGB")
+                    # count error and fallback to placeholder
+                    self.image_error_count += 1
+                    self.image_error_indices.append(int(index))
+                    try:
+                        if self.img_paths is not None:
+                            p = str(self.img_paths[index] or "")
+                            alt = p.rsplit('.',1)[0] + ".png" if "." in p else p
+                            image = Image.open(alt).convert("RGB")
+                        else:
+                            image = Image.open(self.img_file_fmt.replace("jpg","png").format(self.data_ids[index])).convert("RGB")
+                    except:
+                        try:
+                            image = Image.open(self.empty_image).convert("RGB")
+                        except:
+                            from PIL import Image as _Image
+                            image = _Image.new("RGB", (224, 224), (0, 0, 0))
             else:
-                #print("empty")
-                image = Image.open(self.empty_image).convert("RGB")
+                # if an explicit empty image exists, use it; otherwise synthesize a black image
+                try:
+                    if self.empty_image is not None:
+                        image = Image.open(self.empty_image).convert("RGB")
+                    else:
+                        raise FileNotFoundError
+                except Exception:
+                    from PIL import Image as _Image
+                    image = _Image.new("RGB", (224, 224), (0, 0, 0))
 
             inputs = self.processor(
                 text = text, 
@@ -216,6 +250,8 @@ class ViLT_Dataset(Dataset):
             self.data_ids_num = [float(x.split(".")[0]) for x in self.data_ids]
         elif self.task_name in {"polid","poladv"}:
             self.data_ids_num = [float(x[2:]) for x in self.data_ids]
+        elif self.task_name == "viclick":
+            self.data_ids_num = list(range(len(self.data_ids)))
         else:
             self.data_ids_num = self.data_ids
 
@@ -291,7 +327,7 @@ class Lxmert_Dataset(Dataset):
     
     def __getitem__(self, index):
         # text
-        text = self.tweet_preprocessing.normalizeTweet(self.text[index]) if self.normalization else self.text
+        text = self.tweet_preprocessing.normalizeTweet(self.text[index]) if self.normalization else self.text[index]
         inputs = self.tokenizer(
                 text,
                 padding="max_length",
@@ -337,7 +373,7 @@ class MM_CNN_Dataset(Dataset):
     
     def __getitem__(self, index):
         # text
-        text = self.tweet_preprocessing.normalizeTweet(self.text[index]) if self.normalization else self.text
+        text = self.tweet_preprocessing.normalizeTweet(self.text[index]) if self.normalization else self.text[index]
         inputs = self.tokenizer.encode_plus(
             text ,
             None,
@@ -364,7 +400,7 @@ class MM_CNN_Dataset(Dataset):
         new_inputs["pixel_values"] = self.transforms(image) #to_tensor_and_normalize(image)
         # labels
         new_inputs['labels'] = torch.tensor(self.labels[index], dtype=torch.long)
-        new_inputs['data_id'] = torch.tensor(self.data_ids[index], dtype=torch.long)
+        new_inputs['data_id'] = torch.tensor(self.data_ids_num[index], dtype=torch.long)
 
         return new_inputs
 

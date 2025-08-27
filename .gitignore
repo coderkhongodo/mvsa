@@ -40,9 +40,6 @@ data/MVSA-Single-20/
 data/**/*.zip
 
 # CSV files
-*.csv
-data/**/*.csv
-results/**/*.csv
 
 # Byte-compiled / cache
 __pycache__/

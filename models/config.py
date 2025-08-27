@@ -51,6 +51,24 @@ class Config(object):
             self.batch_size = 16
         elif args.task == 7:
             # ViClickbait-2025 (binary)
+            # Ensure 'label' is numeric {0,1}. Handle possible duplicate 'label' columns (str and int).
+            import numpy as _np
+            # Prefer any numeric label-like column if present
+            label_like_cols = [c for c in data_key.columns if str(c).startswith('label')]
+            chosen_label_col = None
+            for c in label_like_cols:
+                if _np.issubdtype(data_key[c].dtype, _np.number):
+                    chosen_label_col = c
+                    break
+            if chosen_label_col is None:
+                # Fallback: map string labels to int
+                if 'label' in data_key.columns:
+                    data_key['label'] = data_key['label'].map({'non-clickbait': 0, 'clickbait': 1}).astype(int)
+                    chosen_label_col = 'label'
+            else:
+                # Use the numeric column as 'label'
+                data_key['label'] = data_key[chosen_label_col].astype(int)
+
             # allow optional 'image' column, keep it in self.data for multimodal usage
             cols = [c for c in ["tweet_id","text","label","split","image"] if c in data_key.columns]
             self.data = data_key[cols]
@@ -110,6 +128,11 @@ _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _PROJ_ROOT = os.path.normpath(os.path.join(_THIS_DIR, ".."))
 DATA_PATH = os.path.join(_PROJ_ROOT, "data") + os.sep
 
+import os as _os
+_VCLICK_FULL = _os.path.join(DATA_PATH, "data_key_viclickbait.csv")
+_VCLICK_20 = _os.path.join(DATA_PATH, "data_key_viclickbait_20.csv")
+_VCLICK_PATH = _VCLICK_FULL if _os.path.exists(_VCLICK_FULL) else _VCLICK_20
+
 PATH = {
     0: DATA_PATH + "data_key_imgtxt_random.csv",
     1: DATA_PATH + "data_key_imgtxt_random.csv",
@@ -118,7 +141,7 @@ PATH = {
     4: DATA_PATH + "data_key_mhp.csv",
     5: DATA_PATH + "data_key_mic.csv",
     6: DATA_PATH + "data_key_msd.csv",
-    7: DATA_PATH + "data_key_viclickbait_20.csv",
+    7: _VCLICK_PATH,
     }
 
 IMG_FMT ={
@@ -159,7 +182,7 @@ MODEL_DIR_DICT = {
     "bertweet": "vinai/bertweet-base",      # Sử dụng tên model trực tiếp
     "roberta": "roberta-base",              # Sử dụng tên model trực tiếp
     "bernice": "jhu-clsp/bernice",         # Sử dụng tên model trực tiếp
-    "phobert": "vinai/phobert-large",      # PhoBERT-large for Vietnamese
+    "phobert": "vinai/phobert-base",      # Switch to PhoBERT-base for Vietnamese
     "vit": "google/vit-base-patch16-224-in21k",  # Sử dụng tên model trực tiếp
     "beit": "microsoft/beit-base-patch16-224-pt22k-ft22k",
     "deit": "facebook/deit-base-distilled-patch16-224",

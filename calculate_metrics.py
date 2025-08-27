@@ -6,7 +6,7 @@ from sklearn.metrics import (
 )
 
 # Load the predictions file
-df = pd.read_csv('/root/mvsa_multimodal/results/mm_late/bernice-vit-concat_task3_seed30_itc0.1itm0.1_preds.csv')
+df = pd.read_csv('/root/mvsa/results/mm_late/phobert-vit-concat_task7_seed30_itc0.1itm0.1_metrics_val.csv')
 
 # Extract true labels and predictions
 y_true = df['label'].values

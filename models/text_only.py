@@ -13,6 +13,7 @@ from transformers import AutoTokenizer, AutoModel
 import argparse
 from config import *
 from utils import prepare_data, prepare_text_data, agg_metrics_val, get_optimizer_params, loss_correction
+from transformers import get_linear_schedule_with_warmup
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 # ------ LOGGING-----------------------------------------------------
 import logging
@@ -29,12 +30,14 @@ class BERT(nn.Module):
         super(BERT, self).__init__()
         self.bert_model = AutoModel.from_pretrained(model_dir)
         self.dropout = nn.Dropout(dropout)
-        self.linear = nn.Linear(txt_feat_size, num_labels)
+        hidden_size = getattr(self.bert_model.config, 'hidden_size', txt_feat_size)
+        self.linear = nn.Linear(hidden_size, num_labels)
         
     def forward(self,ids,mask,token_type_ids):
-        last_hidden, pooled_output= self.bert_model(ids,attention_mask=mask,token_type_ids=token_type_ids, return_dict=False)
-        dropout_output = self.dropout(last_hidden[:,0,:])
-        #dropout_output = self.dropout(pooled_output)
+        outputs = self.bert_model(ids,attention_mask=mask,token_type_ids=token_type_ids, return_dict=False)
+        last_hidden = outputs[0]
+        cls_output = last_hidden[:,0,:]
+        dropout_output = self.dropout(cls_output)
         linear_output = self.linear(dropout_output)
         return linear_output
    
@@ -43,12 +46,14 @@ class BERNICE(nn.Module):
         super().__init__()
         self.bert_model = AutoModel.from_pretrained(model_dir)
         self.dropout = nn.Dropout(dropout)
-        self.linear = nn.Linear(txt_feat_size, num_labels)
+        hidden_size = getattr(self.bert_model.config, 'hidden_size', txt_feat_size)
+        self.linear = nn.Linear(hidden_size, num_labels)
         
     def forward(self,ids,mask):
-        last_hidden, pooled_output = self.bert_model(ids,attention_mask=mask, return_dict=False)
-        dropout_output = self.dropout(last_hidden[:,0,:])
-        # dropout_output = self.dropout(pooled_output)
+        outputs = self.bert_model(ids,attention_mask=mask, return_dict=False)
+        last_hidden = outputs[0]
+        cls_output = last_hidden[:,0,:]
+        dropout_output = self.dropout(cls_output)
         linear_output = self.linear(dropout_output)
         return linear_output
 
@@ -57,12 +62,15 @@ class RoBERTa(nn.Module):
         super(RoBERTa, self).__init__()
         self.bert_model = AutoModel.from_pretrained(model_dir)
         self.dropout = nn.Dropout(dropout)
-        self.linear = nn.Linear(txt_feat_size, num_labels)
+        hidden_size = getattr(self.bert_model.config, 'hidden_size', txt_feat_size)
+        self.linear = nn.Linear(hidden_size, num_labels)
         
     def forward(self,ids,mask):
-        _,pooled_output= self.bert_model(ids,attention_mask=mask, return_dict=False)
-        dropout_output = self.dropout(pooled_output)
-        linear_output = self.linear(pooled_output)
+        outputs = self.bert_model(ids,attention_mask=mask, return_dict=False)
+        last_hidden = outputs[0]
+        cls_output = last_hidden[:,0,:]
+        dropout_output = self.dropout(cls_output)
+        linear_output = self.linear(dropout_output)
         return linear_output
    
 class TextModel(object):
@@ -87,7 +95,7 @@ class TextModel(object):
         
         # model
         if self.model_name == "roberta":
-            model = RoBERTa(self.model_dir, self.num_labels, dropout=self.dropout)
+            self.model = RoBERTa(self.model_dir, self.num_labels, dropout=self.dropout)
         elif self.model_name in {"bernice","phobert"}:
             self.model = BERNICE(self.model_dir, self.num_labels, dropout=self.dropout)
         else:
@@ -115,11 +123,12 @@ class TextModel(object):
     def load_data(self,data, testing=False ,eval_txt_test=False, task_name=None):
 
         train, y_vector_tr, val, y_vector_val, test, y_vector_te, class_weights, image_adds = prepare_data(data, self.num_labels, testing=testing)
-        tr_dataset = TxtOnly_Dataset(self.model_name, train.tweet_id.values,train.text.values,y_vector_tr,self.tokenizer, self.max_length,task_name)
+        use_norm = False if task_name == "viclick" else True
+        tr_dataset = TxtOnly_Dataset(self.model_name, train.tweet_id.values,train.text.values,y_vector_tr,self.tokenizer, self.max_length,task_name, normalization=use_norm)
         train_loader = DataLoader(tr_dataset, batch_size=self.batch_size,shuffle=True)
-        val_dataset = TxtOnly_Dataset(self.model_name, val.tweet_id.values, val.text.values,y_vector_val,self.tokenizer, self.max_length,task_name)
+        val_dataset = TxtOnly_Dataset(self.model_name, val.tweet_id.values, val.text.values,y_vector_val,self.tokenizer, self.max_length,task_name, normalization=use_norm)
         val_loader = DataLoader(val_dataset, batch_size=self.batch_size,shuffle=False)
-        te_dataset = TxtOnly_Dataset(self.model_name, test.tweet_id.values, test.text.values,y_vector_te,self.tokenizer, self.max_length,task_name)
+        te_dataset = TxtOnly_Dataset(self.model_name, test.tweet_id.values, test.text.values,y_vector_te,self.tokenizer, self.max_length,task_name, normalization=use_norm)
         test_loader = DataLoader(te_dataset, batch_size=self.batch_size,shuffle=False)
         if eval_txt_test:
             # text_only
@@ -161,18 +170,27 @@ class TextModel(object):
                 anneal_strategy='cos'
             )
         elif scheduler_type == 'warmup_linear':
-            # Custom WarmupLinear scheduler
-            # Start with very low LR
+            # Backward-compat custom warmup-linear
             for param_group in optimizer.param_groups:
-                param_group['lr'] = lr * 0.01  # Start with 1% of target LR
-            
+                param_group['lr'] = lr * 0.01
+            if isinstance(warmup_steps, float) and warmup_steps < 1.0:
+                warmup_steps_int = max(1, int(total_steps * warmup_steps))
+            else:
+                warmup_steps_int = int(warmup_steps)
             scheduler = {
                 'type': 'warmup_linear', 
-                'warmup_steps': warmup_steps, 
+                'warmup_steps': warmup_steps_int, 
                 'target_lr': lr, 
                 'total_steps': total_steps,
-                'decay_steps': total_steps - warmup_steps
+                'decay_steps': max(1, total_steps - warmup_steps_int)
             }
+        elif scheduler_type == 'hf_warmup_linear':
+            # HuggingFace warmup linear scheduler
+            if isinstance(warmup_steps, float) and warmup_steps < 1.0:
+                warmup_steps_int = max(1, int(total_steps * warmup_steps))
+            else:
+                warmup_steps_int = int(warmup_steps)
+            scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=warmup_steps_int, num_training_steps=total_steps)
         elif scheduler_type == 'onecycle':
             # Use OneCycleLR for better control
             scheduler = optim.lr_scheduler.OneCycleLR(
@@ -207,7 +225,7 @@ class TextModel(object):
                 # zero the parameter gradients
                 optimizer.zero_grad()
                 # forward
-                if self.model_name not in {"roberta", "bernice"}:
+                if self.model_name not in {"roberta", "bernice", "phobert"}:
                     token_type_ids=dl['token_type_ids'].to(device)
                     output=self.model(
                         ids=ids,
@@ -358,11 +376,11 @@ class TextModel(object):
             mask = dl['mask'].to(device)
             label = dl['target'].to(device)
             data_id = dl['data_id'].to(device)
-            if self.model_name not in {"roberta", "bernice"}:
+            if self.model_name not in {"roberta", "bernice", "phobert"}:
                 token_type_ids = dl['token_type_ids'].to(device)
             # Compute logits
             with torch.no_grad():
-                if self.model_name not in {"roberta", "bernice"}:
+                if self.model_name not in {"roberta", "bernice", "phobert"}:
                     output = self.model(ids=ids, mask=mask, token_type_ids=token_type_ids)
                 else:
                     # roberta, bernice

@@ -36,8 +36,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--input', default=os.path.join('data', 'ViClickbait-2025', 'clickbait_dataset_vietnamese.csv'), help='path to ViClickbait CSV')
     parser.add_argument('--dataset_root', default=os.path.join('data', 'ViClickbait-2025'), help='dataset root to resolve thumbnail paths')
-    parser.add_argument('--output', default=os.path.join('data', 'data_key_viclickbait_20.csv'), help='output key CSV path')
-    parser.add_argument('--frac', type=float, default=0.20, help='fraction per split to keep')
+    parser.add_argument('--output', default=os.path.join('data', 'data_key_viclickbait.csv'), help='output key CSV path')
+    parser.add_argument('--frac', type=float, default=1.0, help='fraction per split to keep (use 1.0 for 100%)')
     parser.add_argument('--seed', type=int, default=42, help='random seed')
     args = parser.parse_args()
 
