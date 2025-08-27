@@ -1,3 +1,5 @@
+import os
+
 class Config(object):
     """
     Config class
@@ -47,6 +49,13 @@ class Config(object):
             self.data = data_key[self.column_names]
             self.num_labels = 2
             self.batch_size = 16
+        elif args.task == 7:
+            # ViClickbait-2025 (binary)
+            # allow optional 'image' column, keep it in self.data for multimodal usage
+            cols = [c for c in ["tweet_id","text","label","split","image"] if c in data_key.columns]
+            self.data = data_key[cols]
+            self.num_labels = 2
+            self.batch_size = 16
         self.img_fmt = IMG_FMT[args.task]
         self.task_name = TASKS[args.task]
         self.classes = CLASSES[args.task] if args.task in CLASSES else None
@@ -93,28 +102,34 @@ TASKS = {
     4:"mhp",
     5:"mic",
     6:"msd",
+    7:"viclick",
 }
 
-DATA_PATH = "/root/mvsa_multimodal/data/"
+# Dynamically resolve project root and data/results directories
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+_PROJ_ROOT = os.path.normpath(os.path.join(_THIS_DIR, ".."))
+DATA_PATH = os.path.join(_PROJ_ROOT, "data") + os.sep
 
 PATH = {
     0: DATA_PATH + "data_key_imgtxt_random.csv",
     1: DATA_PATH + "data_key_imgtxt_random.csv",
     2: DATA_PATH + "data_key_imgtxt_random.csv",
-    3: "/root/mvsa_multimodal/data/data_key_mvsa_20.csv",  # 20% MVSA subset (absolute path)
+    3: DATA_PATH + "data_key_mvsa_20.csv",  # 20% MVSA subset
     4: DATA_PATH + "data_key_mhp.csv",
     5: DATA_PATH + "data_key_mic.csv",
     6: DATA_PATH + "data_key_msd.csv",
+    7: DATA_PATH + "data_key_viclickbait_20.csv",
     }
 
 IMG_FMT ={
     0: DATA_PATH + 'text-image/T{}.jpg',
     1: DATA_PATH + 'text-image/T{}.jpg',
     2: DATA_PATH + 'text-image/T{}.jpg',
-    3: '/root/mvsa_multimodal/data/MVSA-Single-20/data/{}.jpg',  # 20% images; PNG fallback handled in dataset
+    3: DATA_PATH + 'MVSA-Single-20/data/{}.jpg',  # 20% images; PNG fallback handled in dataset
     4: DATA_PATH +"MHP/Data/Images/{}.jpg",
     5: DATA_PATH + "MIC/spc_imgs_twitter/{}_1.jpg",
     6: DATA_PATH +'MSD/dataset_image/{}.jpg',
+    7: None,  # ViClickbait uses absolute/normalized paths from key
 }
 
 
@@ -123,13 +138,14 @@ CLASSES = {2:['image adds and text is represented',
               'image does not add and text is represented',
               'image does not adds and text is not represented'],
             3:['neutral', 'positive', 'negative'],
-            6:['not sarcastic','sarcastic']
+            6:['not sarcastic','sarcastic'],
+            7:['non-clickbait','clickbait']
             }
 
 EMPTY_IMG = DATA_PATH + "MIC/empty_image.png"
 TDATA5 = "../data/text_data_mic.csv"
 metric_names = ["f1_weighted","f1_macro","precision_weighted","precision_macro","recall_weighted","recall_macro","loss"]
-RES_PATH = "/root/mvsa_multimodal/results/"
+RES_PATH = os.path.join(_PROJ_ROOT, "results") + os.sep
 results_dir_txt = RES_PATH + "txt_only/"
 results_dir_img = RES_PATH + "img_only/"
 results_dir_mm_early = RES_PATH + "mm_early/"
@@ -143,6 +159,7 @@ MODEL_DIR_DICT = {
     "bertweet": "vinai/bertweet-base",      # Sử dụng tên model trực tiếp
     "roberta": "roberta-base",              # Sử dụng tên model trực tiếp
     "bernice": "jhu-clsp/bernice",         # Sử dụng tên model trực tiếp
+    "phobert": "vinai/phobert-large",      # PhoBERT-large for Vietnamese
     "vit": "google/vit-base-patch16-224-in21k",  # Sử dụng tên model trực tiếp
     "beit": "microsoft/beit-base-patch16-224-pt22k-ft22k",
     "deit": "facebook/deit-base-distilled-patch16-224",

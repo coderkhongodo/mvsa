@@ -3,6 +3,52 @@ __pycache__/
 *.py[cod]
 *.pyo
 .ipynb_checkpoints/
+.pytest_cache/
+.cache/
+
+# Environments / build
+.venv/
+venv/
+.env
+*.egg-info/
+build/
+dist/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs / experiments
+logs/
+wandb/
+lightning_logs/
+
+# Model weights / checkpoints
+*.pth
+*.pt
+*.ckpt
+*.bin
+*.safetensors
+
+
+# Datasets and large artifacts
+dataset.zip
+MVSA-single.zip
+data/ViClickbait-2025/
+data/MVSA-Single/
+data/MVSA-Single-20/
+data/**/*.zip
+
+# CSV files
+*.csv
+data/**/*.csv
+results/**/*.csv
+
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*.pyo
+.ipynb_checkpoints/
 
 # Environments / build
 .venv/

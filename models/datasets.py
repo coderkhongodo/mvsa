@@ -129,7 +129,7 @@ class ImgOnlyCNN_Dataset(Dataset):
 
 class MM_Dataset(Dataset):
     def __init__(self, data_ids, text, labels, processor, max_length, img_file_fmt=None, empty_image=None,
-     normalization=True, saved_features=False, task_name=None, image_adds=None): 
+     normalization=True, saved_features=False, task_name=None, image_adds=None, img_paths=None): 
         self.data_ids = data_ids
         self.task_name = task_name
         if self.task_name == "poi":
@@ -149,6 +149,7 @@ class MM_Dataset(Dataset):
             self.tweet_preprocessing = Tweet_Preprocessing() 
         self.processor=processor
         self.img_file_fmt = img_file_fmt
+        self.img_paths = img_paths
         self.empty_image = empty_image
         self.saved_features = saved_features
         self.image_adds = image_adds
@@ -167,9 +168,19 @@ class MM_Dataset(Dataset):
             if self.empty_image == None:
                 #print("not empy image")
                 try:
-                    image = Image.open(self.img_file_fmt.format(self.data_ids[index])).convert("RGB")
+                    if self.img_paths is not None:
+                        img_path = self.img_paths[index]
+                        image = Image.open(img_path).convert("RGB")
+                    else:
+                        image = Image.open(self.img_file_fmt.format(self.data_ids[index])).convert("RGB")
                 except:
-                    image = Image.open(self.img_file_fmt.replace("jpg","png").format(self.data_ids[index])).convert("RGB")
+                    if self.img_paths is None:
+                        image = Image.open(self.img_file_fmt.replace("jpg","png").format(self.data_ids[index])).convert("RGB")
+                    else:
+                        # fallback to png by replacing extension on path
+                        p = str(self.img_paths[index])
+                        alt = p.rsplit('.',1)[0] + ".png"
+                        image = Image.open(alt).convert("RGB")
             else:
                 #print("empty")
                 image = Image.open(self.empty_image).convert("RGB")

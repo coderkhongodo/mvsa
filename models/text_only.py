@@ -88,7 +88,7 @@ class TextModel(object):
         # model
         if self.model_name == "roberta":
             model = RoBERTa(self.model_dir, self.num_labels, dropout=self.dropout)
-        elif self.model_name == "bernice":
+        elif self.model_name in {"bernice","phobert"}:
             self.model = BERNICE(self.model_dir, self.num_labels, dropout=self.dropout)
         else:
             self.model = BERT(self.model_dir, self.num_labels, dropout=self.dropout)
